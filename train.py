@@ -1,9 +1,10 @@
 #! /usr/bin/env python
 
 import argparse
-import os
+# import os
 import numpy as np
 import json
+import pickle
 from voc import parse_voc_annotation
 from yolo import create_yolov3_model, dummy_loss
 from generator import BatchGenerator
@@ -17,13 +18,24 @@ import keras
 from keras.models import load_model
 
 
-config = tf.compat.v1.ConfigProto(
-    gpu_options = tf.compat.v1.GPUOptions(per_process_gpu_memory_fraction=0.9)
-    # device_count = {'GPU': 1}
-)
-config.gpu_options.allow_growth = True
-session = tf.compat.v1.Session(config=config)
-tf.compat.v1.keras.backend.set_session(session)
+from warnings import simplefilter 
+simplefilter(action='ignore', category=FutureWarning)
+import sys
+import os
+
+
+from keras.backend.tensorflow_backend import set_session
+
+
+
+# config = tf.compat.v1.ConfigProto(
+#     gpu_options = tf.compat.v1.GPUOptions(per_process_gpu_memory_fraction=0.9),
+#     device_count = {'GPU': (0,1)}
+# )
+# config.gpu_options.allow_growth = True
+# config.log_device_placement = False  # to log device placement (on which device the operation ran)
+# session = tf.compat.v1.Session(config=config)
+# tf.compat.v1.keras.backend.set_session(session)
 
 def create_training_instances(
     train_annot_folder,
@@ -43,7 +55,7 @@ def create_training_instances(
     else:
         print("valid_annot_folder not exists. Spliting the trainining set.")
 
-        train_valid_split = int(0.8*len(train_ints))
+        train_valid_split = int(0.8888*len(train_ints)) #0.8888 of the train represents 80% of the whole dataset, while 0.1112 represents 10% of the whole
         np.random.seed(0)
         np.random.shuffle(train_ints)
         np.random.seed()
@@ -71,13 +83,13 @@ def create_training_instances(
 
     return train_ints, valid_ints, sorted(labels), max_box_per_image
 
-def create_callbacks(saved_weights_name, tensorboard_logs, model_to_save):
-    makedirs(tensorboard_logs)
+def create_callbacks(saved_weights_name, model_to_save):
+    #makedirs(tensorboard_logs)
     
     early_stop = EarlyStopping(
         monitor     = 'loss', 
         min_delta   = 0.01, 
-        patience    = 7, 
+        patience    = 10, 
         mode        = 'min', 
         verbose     = 1
     )
@@ -93,19 +105,14 @@ def create_callbacks(saved_weights_name, tensorboard_logs, model_to_save):
     reduce_on_plateau = ReduceLROnPlateau(
         monitor  = 'loss',
         factor   = 0.1,
-        patience = 2,
+        patience = 3,
         verbose  = 1,
         mode     = 'min',
         epsilon  = 0.01,
         cooldown = 0,
         min_lr   = 0
-    )
-    tensorboard = CustomTensorBoard(
-        log_dir                = tensorboard_logs,
-        write_graph            = True,
-        write_images           = True,
-    )    
-    return [early_stop, checkpoint, reduce_on_plateau, tensorboard]
+    )   
+    return [early_stop, checkpoint, reduce_on_plateau]
 
 def create_model(
     nb_class, 
@@ -178,6 +185,34 @@ def _main_(args):
     with open(config_path) as config_buffer:    
         config = json.loads(config_buffer.read())
 
+    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+
+    stderr = sys.stderr
+    sys.stderr = open(os.devnull, 'w')
+    # print("Number of arguments: ", len(sys.argv))
+    # print("The arguments are: " , str(sys.argv))
+    
+    os.environ['KMP_WARNINGS'] = 'off'
+    stderr = sys.stderr
+    sys.stderr = open(os.devnull, 'w')
+    os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID";
+    # The GPU id to use, usually either "0" or "1";
+    # print("RUNNING ON GPU ", sys.argv[0])
+    print("RUNNING ON GPU ", config['train']['gpus'])
+    os.environ["CUDA_VISIBLE_DEVICES"]=config['train']['gpus'];     
+    # os.environ["CUDA_VISIBLE_DEVICES"]="0,1";  
+    # import tensorflow as tf
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
+    sys.stderr = stderr
+    # tf.set_verbosity(tf.logging.ERROR)
+
+    backend_config = tf.ConfigProto()
+    backend_config.gpu_options.allow_growth = True  # dynamically grow the memory used on the GPU
+    backend_config.log_device_placement = False  # to log device placement (on which device the operation ran)
+    sess = tf.Session(config=backend_config)
+    set_session(sess)  # set this TensorFlow session as the default session for Keras
+    
+    
     ###############################
     #   Parse the annotations 
     ###############################
@@ -254,9 +289,9 @@ def _main_(args):
     ###############################
     #   Kick off the training
     ###############################
-    callbacks = create_callbacks(config['train']['saved_weights_name'], config['train']['tensorboard_dir'], infer_model)
+    callbacks = create_callbacks(config['train']['saved_weights_name'], infer_model)
 
-    train_model.fit_generator(
+    hist = train_model.fit_generator(
         generator        = train_generator, 
         steps_per_epoch  = len(train_generator) * config['train']['train_times'], 
         epochs           = config['train']['nb_epochs'] + config['train']['warmup_epochs'], 
@@ -265,6 +300,11 @@ def _main_(args):
         workers          = 4,
         max_queue_size   = 8
     )
+
+    file = 'results/' + config['model']['name'] + '.pickle'        
+
+    with open(file, 'wb') as f:
+        pickle.dump([hist.history['loss'], hist.history['yolo_layer_1_loss'], hist.history['yolo_layer_2_loss'], hist.history['yolo_layer_3_loss']], f)
 
     # make a GPU version of infer_model for evaluation
     if multi_gpu > 1:

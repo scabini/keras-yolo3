@@ -1,6 +1,7 @@
 #! /usr/bin/env python
 
 import os
+import sys
 import argparse
 import json
 import cv2
@@ -9,27 +10,60 @@ from utils.bbox import draw_boxes
 from keras.models import load_model
 from tqdm import tqdm
 import numpy as np
+import tensorflow as tf
+from keras.backend.tensorflow_backend import set_session
+
+tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+
 
 def _main_(args):
     config_path  = args.conf
-    input_path   = args.input
+    
     output_path  = args.output
 
     with open(config_path) as config_buffer:    
         config = json.load(config_buffer)
+
+    input_path = config['test']['test_image_folder']
 
     makedirs(output_path)
 
     ###############################
     #   Set some parameter
     ###############################       
-    net_h, net_w = 416, 416 # a multiple of 32, the smaller the faster
+    net_h, net_w = 448, 448 # a multiple of 32, the smaller the faster
     obj_thresh, nms_thresh = 0.5, 0.45
 
     ###############################
     #   Load the model
     ###############################
+    stderr = sys.stderr
+    sys.stderr = open(os.devnull, 'w')
+    # print("Number of arguments: ", len(sys.argv))
+    # print("The arguments are: " , str(sys.argv))
+    
+    os.environ['KMP_WARNINGS'] = 'off'
+    stderr = sys.stderr
+    sys.stderr = open(os.devnull, 'w')
+    os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID";
+    # The GPU id to use, usually either "0" or "1";
+    # print("RUNNING ON GPU ", sys.argv[0])
+    print("RUNNING ON GPU ", config['train']['gpus'])
     os.environ['CUDA_VISIBLE_DEVICES'] = config['train']['gpus']
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
+    sys.stderr = stderr
+
+    backend_config = tf.ConfigProto()
+    backend_config.gpu_options.allow_growth = True  # dynamically grow the memory used on the GPU
+    backend_config.log_device_placement = False  # to log device placement (on which device the operation ran)
+    sess = tf.Session(config=backend_config)
+    set_session(sess)  # set this TensorFlow session as the default session for Keras
+    
+    
+    
+    
+    
+    
     infer_model = load_model(config['train']['saved_weights_name'])
 
     ###############################
