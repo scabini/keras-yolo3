@@ -1,7 +1,6 @@
 #! /usr/bin/env python
 
 import argparse
-# import os
 import numpy as np
 import json
 import pickle
@@ -297,7 +296,7 @@ def _main_(args):
         epochs           = config['train']['nb_epochs'] + config['train']['warmup_epochs'], 
         verbose          = 2 if config['train']['debug'] else 1,
         callbacks        = callbacks, 
-        workers          = 4,
+        workers          = 12,
         max_queue_size   = 8
     )
 
