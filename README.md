@@ -1,3 +1,8 @@
+# Application of keras YOLOv3
+
+#WIP...
+
+# Original repo below
 # YOLO3 (Detection, Training, and Evaluation)
 
 ## Dataset and Model
