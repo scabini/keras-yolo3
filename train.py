@@ -160,7 +160,7 @@ def create_model(
             xywh_scale          = xywh_scale,
             class_scale         = class_scale
         )  
-
+   
     # load the pretrained weight if exists, otherwise load the backend weight only
     if os.path.exists(saved_weights_name): 
         print("\nLoading pretrained weights.\n")
@@ -262,6 +262,7 @@ def _main_(args):
     ###############################
     if os.path.exists(config['train']['saved_weights_name']): 
         config['train']['warmup_epochs'] = 0
+        
     warmup_batches = config['train']['warmup_epochs'] * (config['train']['train_times']*len(train_generator))   
 
     os.environ['CUDA_VISIBLE_DEVICES'] = config['train']['gpus']
@@ -284,26 +285,28 @@ def _main_(args):
         xywh_scale          = config['train']['xywh_scale'],
         class_scale         = config['train']['class_scale'],
     )
-
-    ###############################
-    #   Kick off the training
-    ###############################
-    callbacks = create_callbacks(config['train']['saved_weights_name'], infer_model)
-
-    hist = train_model.fit_generator(
-        generator        = train_generator, 
-        steps_per_epoch  = len(train_generator) * config['train']['train_times'], 
-        epochs           = config['train']['nb_epochs'] + config['train']['warmup_epochs'], 
-        verbose          = 2 if config['train']['debug'] else 1,
-        callbacks        = callbacks, 
-        workers          = 12,
-        max_queue_size   = 8
-    )
-
-    file = 'results/' + config['model']['name'] + '.pickle'        
-
-    with open(file, 'wb') as f:
-        pickle.dump([hist.history['loss'], hist.history['yolo_layer_1_loss'], hist.history['yolo_layer_2_loss'], hist.history['yolo_layer_3_loss']], f)
+    
+    if os.path.exists(config['train']['saved_weights_name']): 
+        print("Model already trained, or training was interrupted... using stored weights")
+      
+    else:
+        ###############################
+        #   Kick off the training
+        ###############################
+        callbacks = create_callbacks(config['train']['saved_weights_name'], infer_model)
+    
+        hist = train_model.fit_generator(
+            generator        = train_generator, 
+            steps_per_epoch  = len(train_generator) * config['train']['train_times'], 
+            epochs           = config['train']['nb_epochs'] + config['train']['warmup_epochs'], 
+            verbose          = 1,
+            callbacks        = callbacks, 
+            workers          = 8,
+            max_queue_size   = 8
+        )
+        file = 'results/' + config['model']['name'] + '.pickle' 
+        with open(file, 'wb') as f:
+            pickle.dump([hist.history['loss'], hist.history['yolo_layer_1_loss'], hist.history['yolo_layer_2_loss'], hist.history['yolo_layer_3_loss']], f)
 
     # make a GPU version of infer_model for evaluation
     if multi_gpu > 1:
